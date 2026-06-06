@@ -194,6 +194,9 @@ function toFrontendUser(doc) {
     status: u.status || "active",
     points: u.points ?? 0,
     phone: u.phone || "",
+    address: u.address || "",
+    wilaya: u.wilaya || "",
+    commune: u.commune || "",
     birthday: u.birthday || null,
     createdAt: u.createdAt ? new Date(u.createdAt).getTime() : Date.now(),
   };

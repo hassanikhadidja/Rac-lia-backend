@@ -74,6 +74,18 @@ exports.CreateOrder = async (req, res) => {
   }
 };
 
+exports.GetMyOrders = async (req, res) => {
+  try {
+    const email = String(req.user.email || "").toLowerCase();
+    const orders = await Order.find({
+      $or: [{ userId: req.user._id }, { customerEmail: email }],
+    }).sort({ createdAt: -1 });
+    return res.status(200).json(orders.map(toFrontendOrder));
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
+  }
+};
+
 exports.GetOrders = async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });

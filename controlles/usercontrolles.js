@@ -116,6 +116,28 @@ exports.getUsers = async (req, res) => {
   }
 };
 
+exports.updateMyProfile = async (req, res) => {
+  try {
+    const update = {};
+    const { name, phone, address, wilaya, commune, birthday } = req.body;
+    if (name != null) update.name = String(name).trim();
+    if (phone != null) update.phone = String(phone).trim();
+    if (address != null) update.address = String(address).trim();
+    if (wilaya != null) update.wilaya = String(wilaya).trim();
+    if (commune != null) update.commune = String(commune).trim();
+    if (birthday != null) {
+      const d = birthday ? new Date(birthday) : null;
+      update.birthday = d && !Number.isNaN(d.getTime()) ? d : null;
+    }
+
+    const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("-password");
+    if (!user) return res.status(404).json({ msg: "User not found" });
+    return res.status(200).json({ msg: "Update success", user: toFrontendUser(user) });
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
+  }
+};
+
 exports.UpdateUSER = async (req, res) => {
   try {
     const body = { ...req.body };
