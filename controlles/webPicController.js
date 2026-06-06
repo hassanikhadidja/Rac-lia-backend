@@ -5,7 +5,7 @@ const { toFrontendWebPic } = require("../utils/mappers");
 const uploadOne = (buffer) =>
   new Promise((resolve, reject) => {
     cloudinary.uploader
-      .upload_stream({ folder: "racelia-webpics" }, (err, result) => {
+      .upload_stream({ folder: cloudinary.UPLOAD_FOLDER }, (err, result) => {
         if (err) reject(err);
         else resolve(result.secure_url);
       })

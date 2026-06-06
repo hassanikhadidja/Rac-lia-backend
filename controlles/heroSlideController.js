@@ -4,7 +4,7 @@ const HeroSlide = require("../models/heroSlide");
 const uploadOne = (buffer) =>
   new Promise((resolve, reject) => {
     cloudinary.uploader.upload_stream(
-      { folder: "badee-hero" },
+      { folder: cloudinary.UPLOAD_FOLDER },
       (err, result) => {
         if (err) reject(err);
         else resolve(result.secure_url);
