@@ -1,209 +1,165 @@
-
-// controlles/productcontrolles.js
-const Product    = require("../models/product");
+const Product = require("../models/product");
 const cloudinary = require("../config/cloudinary");
+const { parsePrice, formatPriceEur } = require("../utils/parsePrice");
+const { toFrontendProduct } = require("../utils/mappers");
 
-function parseFormBool(v) {
-  if (Array.isArray(v)) v = v[v.length - 1];
-  if (typeof v === "string") v = v.trim();
-  return v === true || v === "true" || v === 1 || v === "1";
+function slugify(text) {
+  return (
+    String(text || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || `product-${Date.now()}`
+  );
 }
 
-/** FormData / multer always sends packProducts as a JSON string — Mongoose cannot cast that to subdocs. */
-function parsePackProductsRaw(raw) {
-  if (raw == null) return [];
-  if (typeof raw === "string") {
-    const t = raw.trim();
-    if (!t) return [];
-    try {
-      raw = JSON.parse(t);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((x) => {
-      const name = String(x?.name || "").trim();
-      const volume = String(x?.volume || "").trim();
-      const type = String(x?.type || "").trim();
-      if (!name && !volume && !type) return null;
-      return { name, volume, type };
-    })
-    .filter(Boolean);
-}
-
-/**
- * Normalise packProducts en vrai tableau avant save / update.
- * Sans ça, une chaîne JSON provoque CastError sur le schéma embarqué.
- */
-function attachPackProducts(body) {
-  const hasPack = Object.prototype.hasOwnProperty.call(body, "packProducts");
-  const hasIsPack = body.isPack !== undefined;
-
-  if (!hasPack && !hasIsPack) return;
-
-  if (hasIsPack) body.isPack = parseFormBool(body.isPack);
-
-  if (!hasPack) {
-    if (hasIsPack && body.isPack === false) body.packProducts = [];
-    return;
-  }
-
-  const rows = parsePackProductsRaw(body.packProducts);
-
-  if (hasIsPack) {
-    body.packProducts = body.isPack ? rows : [];
-  } else {
-    body.isPack = rows.length > 0;
-    body.packProducts = rows;
+function parseJsonField(raw, fallback) {
+  if (raw == null || raw === "") return fallback;
+  if (typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
   }
 }
 
-function parseShades(body) {
-  const cat = body.category;
-  if (cat !== "Makeup" && cat !== "Hair Color") return [];
-  let raw = body.shades;
-  if (typeof raw === "string") {
-    try {
-      raw = JSON.parse(raw);
-    } catch {
-      return [];
-    }
+function parseStringArray(raw) {
+  const parsed = parseJsonField(raw, raw);
+  if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  if (typeof parsed === "string" && parsed.includes(",")) {
+    return parsed.split(",").map((s) => s.trim()).filter(Boolean);
   }
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((x) => {
-      const name = String(x?.name || "").trim();
-      if (!name) return null;
-      const hex = String(x?.hex || "#CCCCCC").trim();
-      const row = { name, hex: hex.startsWith("#") ? hex : `#${hex}` };
-      if (x?.stock !== "" && x?.stock != null && !Number.isNaN(Number(x.stock))) row.stock = Number(x.stock);
-      if (x?.price !== "" && x?.price != null && !Number.isNaN(Number(x.price)) && Number(x.price) > 0) row.price = Number(x.price);
-      return row;
-    })
-    .filter(Boolean);
+  return typeof parsed === "string" && parsed ? [parsed] : [];
 }
 
-// Upload one buffer to Cloudinary, return secure_url
 const uploadOne = (buffer) =>
   new Promise((resolve, reject) => {
-    cloudinary.uploader.upload_stream(
-      { folder: "badee-beauty-products" },
-      (err, result) => { if (err) reject(err); else resolve(result.secure_url); }
-    ).end(buffer);
+    cloudinary.uploader
+      .upload_stream({ folder: "racelia-products" }, (err, result) => {
+        if (err) reject(err);
+        else resolve(result.secure_url);
+      })
+      .end(buffer);
   });
 
-// Upload all files in req.files in parallel
 const uploadAll = (files) =>
-  files && files.length > 0
-    ? Promise.all(files.map(f => uploadOne(f.buffer)))
-    : Promise.resolve([]);
+  files && files.length > 0 ? Promise.all(files.map((f) => uploadOne(f.buffer))) : Promise.resolve([]);
 
-// ── ADD ──────────────────────────────────────────────────────────
+async function findProductByIdOrSlug(idOrSlug) {
+  if (!idOrSlug) return null;
+  const bySlug = await Product.findOne({ slug: String(idOrSlug).toLowerCase() });
+  if (bySlug) return bySlug;
+  if (/^[a-f\d]{24}$/i.test(String(idOrSlug))) {
+    return Product.findById(idOrSlug);
+  }
+  return null;
+}
+
+function buildProductBody(body, uploadedUrls = []) {
+  const data = { ...body };
+  const slug = String(data.slug || data.id || "").trim().toLowerCase() || slugify(data.name);
+  data.slug = slug;
+
+  if (data.price != null) {
+    data.price = String(data.price);
+    if (!data.priceAmount) data.priceAmount = parsePrice(data.price);
+  } else if (data.priceAmount != null) {
+    data.priceAmount = Number(data.priceAmount) || 0;
+    if (!data.price) data.price = formatPriceEur(data.priceAmount);
+  }
+
+  if (data.sections != null) data.sections = parseStringArray(data.sections);
+  if (data.cardImages != null) data.cardImages = parseStringArray(data.cardImages);
+  if (data.closerLookImages != null) data.closerLookImages = parseStringArray(data.closerLookImages);
+  if (data.colors != null) data.colors = parseStringArray(data.colors);
+  if (data.filters != null) data.filters = parseStringArray(data.filters);
+  if (data.closerLookMain != null) data.closerLookMain = parseJsonField(data.closerLookMain, {});
+
+  if (data.isPack !== undefined) data.isPack = data.isPack === true || data.isPack === "true";
+  if (data.stockNote === undefined) data.stockNote = data.stockNote || "";
+
+  let keepImgs = data.keepImgs || data.cardImages || [];
+  if (typeof keepImgs === "string") keepImgs = keepImgs ? [keepImgs] : [];
+  if (uploadedUrls.length) {
+    data.cardImages = [...keepImgs, ...uploadedUrls];
+    if (!data.coverImage && data.cardImages[0]) data.coverImage = data.cardImages[0];
+  } else if (Array.isArray(keepImgs) && keepImgs.length) {
+    data.cardImages = keepImgs;
+  }
+
+  delete data.keepImgs;
+  delete data.id;
+  return data;
+}
+
 exports.AddProduct = async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0)
-      return res.status(400).send({ msg: "At least one image is required" });
-
     const urls = await uploadAll(req.files);
-    const body = { ...req.body };
-    body.isNew = parseFormBool(body.isNew);
-    body.isTrending = parseFormBool(body.isTrending);
-    attachPackProducts(body);
-    // FormData sends `shades` as a JSON string; Mongoose cannot cast "[]" to embedded docs.
-    if (body.category !== "Makeup" && body.category !== "Hair Color") {
-      body.shades = [];
-    } else {
-      body.shades = parseShades(body);
-    }
+    const body = buildProductBody(req.body, urls);
 
-    const product = new Product(body);
-    product.img = urls;
-    await product.save();
-    return res.status(201).send({ msg: "product added" });
+    if (!body.name) return res.status(400).json({ msg: "Product name is required" });
+
+    const exists = await Product.findOne({ slug: body.slug });
+    if (exists) return res.status(400).json({ msg: "Product slug already exists" });
+
+    const product = await Product.create(body);
+    return res.status(201).json({ msg: "Product added", product: toFrontendProduct(product) });
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── GET ALL ──────────────────────────────────────────────────────
 exports.GetProducts = async (req, res) => {
   try {
-    return res.status(200).json(await Product.find());
+    const { section } = req.query;
+    let query = {};
+    if (section) query = { sections: section };
+
+    const products = await Product.find(query).sort({ updatedAt: -1 });
+    return res.status(200).json(products.map(toFrontendProduct));
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── GET ONE ──────────────────────────────────────────────────────
 exports.GetOneProduct = async (req, res) => {
   try {
-    return res.status(200).json(await Product.findById(req.params.id));
+    const product = await findProductByIdOrSlug(req.params.idOrSlug);
+    if (!product) return res.status(404).json({ msg: "Product not found" });
+    return res.status(200).json(toFrontendProduct(product));
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── UPDATE ───────────────────────────────────────────────────────
 exports.UpdateProduct = async (req, res) => {
   try {
-    const updateData = { ...req.body };
-    if (updateData.isNew !== undefined) updateData.isNew = parseFormBool(updateData.isNew);
-    if (updateData.isTrending !== undefined) updateData.isTrending = parseFormBool(updateData.isTrending);
+    const existing = await findProductByIdOrSlug(req.params.idOrSlug);
+    if (!existing) return res.status(404).json({ msg: "Product not found" });
 
-    // keepImgs: existing Cloudinary URLs the frontend wants to KEEP.
-    // Can be a single string or an array — normalise to array.
-    let keepImgs = req.body.keepImgs || [];
-    if (typeof keepImgs === "string") keepImgs = [keepImgs];
-
-    // Upload any new files
     const newUrls = await uploadAll(req.files);
+    const updateData = buildProductBody(req.body, newUrls);
 
-    // Final img array = kept existing URLs + newly uploaded URLs
-    updateData.img = [...keepImgs, ...newUrls];
-
-    // Remove keepImgs from the top-level update object
-    // (it's now merged into img, no need to store it separately)
-    delete updateData.keepImgs;
-
-    attachPackProducts(updateData);
-
-    if (
-      updateData.category !== undefined &&
-      updateData.category !== "Makeup" &&
-      updateData.category !== "Hair Color"
-    ) {
-      updateData.shades = [];
-    } else if (updateData.shades !== undefined) {
-      let cat = updateData.category;
-      if (!cat) {
-        const cur = await Product.findById(req.params.id).select("category").lean();
-        cat = cur?.category;
-      }
-      updateData.shades = parseShades({ ...updateData, category: cat });
+    if (updateData.slug && updateData.slug !== existing.slug) {
+      const clash = await Product.findOne({ slug: updateData.slug, _id: { $ne: existing._id } });
+      if (clash) return res.status(400).json({ msg: "Product slug already exists" });
     }
 
-    await Product.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { returnDocument: "after" }
-    );
-
-    return res.status(202).send({ msg: "Update success" });
+    const product = await Product.findByIdAndUpdate(existing._id, updateData, { new: true });
+    return res.status(200).json({ msg: "Update success", product: toFrontendProduct(product) });
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── DELETE ───────────────────────────────────────────────────────
 exports.DeleteProduct = async (req, res) => {
   try {
-    const result = await Product.deleteOne({ _id: req.params.id });
-    if (result.deletedCount === 0)
-      return res.status(400).send({ msg: "Bad request" });
-    return res.status(202).send({ msg: "product deleted" });
+    const existing = await findProductByIdOrSlug(req.params.idOrSlug);
+    if (!existing) return res.status(404).json({ msg: "Product not found" });
+    await Product.deleteOne({ _id: existing._id });
+    return res.status(200).json({ msg: "Product deleted" });
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };

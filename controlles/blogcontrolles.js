@@ -1,5 +1,6 @@
 const Blog = require("../models/blog");
 const cloudinary = require("../config/cloudinary");
+const { toFrontendBlog } = require("../utils/mappers");
 
 function slugify(text) {
   return (
@@ -12,51 +13,101 @@ function slugify(text) {
   );
 }
 
+function parseJsonField(raw, fallback) {
+  if (raw == null || raw === "") return fallback;
+  if (typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
 const uploadOne = (buffer) =>
   new Promise((resolve, reject) => {
-    cloudinary.uploader.upload_stream(
-      { folder: "badee-beauty-blog" },
-      (err, result) => {
+    cloudinary.uploader
+      .upload_stream({ folder: "racelia-blog" }, (err, result) => {
         if (err) reject(err);
         else resolve(result.secure_url);
-      },
-    ).end(buffer);
+      })
+      .end(buffer);
   });
+
+async function findBlogByIdOrKey(idOrKey) {
+  if (!idOrKey) return null;
+  const key = String(idOrKey);
+  const byKey = await Blog.findOne({ $or: [{ blogKey: key }, { slug: key.toLowerCase() }] });
+  if (byKey) return byKey;
+  if (/^[a-f\d]{24}$/i.test(key)) return Blog.findById(key);
+  return null;
+}
+
+function normalizeBlogPayload(body) {
+  const payload = { ...body };
+  if (payload.sections != null) payload.sections = parseJsonField(payload.sections, []);
+  if (payload.linkedProductIds != null) {
+    payload.linkedProductIds = parseJsonField(payload.linkedProductIds, payload.linkedProductIds);
+    if (!Array.isArray(payload.linkedProductIds)) payload.linkedProductIds = [];
+  }
+  if (payload.cta != null) payload.cta = parseJsonField(payload.cta, { text: "", productIds: [] });
+
+  if (payload.status === "published") {
+    payload.isPublished = true;
+    if (!payload.publishedAt) payload.publishedAt = new Date();
+  } else if (payload.status === "draft") {
+    payload.isPublished = false;
+  }
+
+  if (payload.isPublished !== undefined) {
+    payload.isPublished = payload.isPublished === true || payload.isPublished === "true";
+    if (payload.isPublished && !payload.publishedAt) payload.publishedAt = new Date();
+    payload.status = payload.isPublished ? "published" : payload.status || "draft";
+  }
+
+  if (payload.id && !payload.blogKey) payload.blogKey = payload.id;
+  delete payload.id;
+  return payload;
+}
 
 exports.GetPublishedBlogs = async (req, res) => {
   try {
-    const blogs = await Blog.find({ isPublished: true }).sort({ createdAt: -1 }).lean();
-    return res.json(blogs);
+    const blogs = await Blog.find({ status: "published" }).sort({ publishedAt: -1, updatedAt: -1 });
+    return res.json(blogs.map(toFrontendBlog));
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
 exports.GetPublishedBlogBySlug = async (req, res) => {
   try {
-    const slug = String(req.params.slug || "").toLowerCase();
-    const b = await Blog.findOne({ slug, isPublished: true }).lean();
-    if (!b) return res.status(404).json({ msg: "Not found" });
-    return res.json(b);
+    const key = String(req.params.slug || "").toLowerCase();
+    const blog = await Blog.findOne({
+      status: "published",
+      $or: [{ slug: key }, { blogKey: req.params.slug }],
+    });
+    if (!blog) return res.status(404).json({ msg: "Not found" });
+    return res.json(toFrontendBlog(blog));
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
 exports.GetAllBlogs = async (req, res) => {
   try {
-    return res.json(await Blog.find().sort({ updatedAt: -1 }).lean());
+    const blogs = await Blog.find().sort({ updatedAt: -1 });
+    return res.json(blogs.map(toFrontendBlog));
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
 exports.AddBlog = async (req, res) => {
   try {
-    const title = String(req.body.title || "").trim();
-    if (!title) return res.status(400).json({ msg: "Le titre est obligatoire" });
+    const body = normalizeBlogPayload(req.body);
+    const title = String(body.title || "").trim();
+    if (!title) return res.status(400).json({ msg: "Title is required" });
 
-    let slug = String(req.body.slug || "").trim().toLowerCase();
+    let slug = String(body.slug || "").trim().toLowerCase();
     if (!slug) slug = slugify(title);
     let finalSlug = slug;
     let n = 0;
@@ -65,73 +116,58 @@ exports.AddBlog = async (req, res) => {
       finalSlug = `${slug}-${n}`;
     }
 
-    let coverImage = "";
-    if (req.file && req.file.buffer) {
-      coverImage = await uploadOne(req.file.buffer);
+    if (req.file?.buffer) {
+      body.coverImage = await uploadOne(req.file.buffer);
     }
 
-    const isPublished = req.body.isPublished === true || req.body.isPublished === "true";
-
-    const blog = new Blog({
+    const blog = await Blog.create({
+      ...body,
       title,
       slug: finalSlug,
-      excerpt: String(req.body.excerpt || ""),
-      content: String(req.body.content || ""),
-      categoryLabel: String(req.body.categoryLabel || "Blog").trim() || "Blog",
-      isPublished,
-      coverImage,
+      blogKey: body.blogKey || `blog-${Date.now()}`,
     });
-    await blog.save();
-    return res.status(201).json({ msg: "ok", blog });
+    return res.status(201).json({ msg: "ok", blog: toFrontendBlog(blog) });
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
 exports.UpdateBlog = async (req, res) => {
   try {
-    const body = { ...req.body };
-    const update = {};
+    const existing = await findBlogByIdOrKey(req.params.id);
+    if (!existing) return res.status(404).json({ msg: "Not found" });
 
-    if (body.title != null) {
-      const t = String(body.title).trim();
-      if (t) update.title = t;
-    }
+    const body = normalizeBlogPayload(req.body);
+    const update = { ...body };
+
     if (body.slug != null && String(body.slug).trim()) {
       const slug = String(body.slug).trim().toLowerCase();
-      const clash = await Blog.findOne({ slug, _id: { $ne: req.params.id } });
-      if (clash) return res.status(400).json({ msg: "Slug déjà utilisé" });
+      const clash = await Blog.findOne({ slug, _id: { $ne: existing._id } });
+      if (clash) return res.status(400).json({ msg: "Slug already in use" });
       update.slug = slug;
     }
-    if (body.excerpt != null) update.excerpt = String(body.excerpt);
-    if (body.content != null) update.content = String(body.content);
-    if (body.categoryLabel != null) {
-      update.categoryLabel = String(body.categoryLabel).trim() || "Blog";
-    }
-    if (body.isPublished !== undefined) {
-      update.isPublished = body.isPublished === true || body.isPublished === "true";
-    }
 
-    if (req.file && req.file.buffer) {
+    if (req.file?.buffer) {
       update.coverImage = await uploadOne(req.file.buffer);
     } else if (Object.prototype.hasOwnProperty.call(body, "keepCover")) {
       update.coverImage = String(body.keepCover || "").trim();
     }
 
-    const blog = await Blog.findByIdAndUpdate(req.params.id, update, { new: true });
-    if (!blog) return res.status(404).json({ msg: "Not found" });
-    return res.json({ msg: "ok", blog });
+    delete update.id;
+    const blog = await Blog.findByIdAndUpdate(existing._id, update, { new: true });
+    return res.json({ msg: "ok", blog: toFrontendBlog(blog) });
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };
 
 exports.DeleteBlog = async (req, res) => {
   try {
-    const result = await Blog.deleteOne({ _id: req.params.id });
-    if (result.deletedCount === 0) return res.status(400).json({ msg: "Bad request" });
+    const existing = await findBlogByIdOrKey(req.params.id);
+    if (!existing) return res.status(400).json({ msg: "Not found" });
+    await Blog.deleteOne({ _id: existing._id });
     return res.json({ msg: "ok" });
   } catch (error) {
-    return res.status(503).send({ msg: error.message });
+    return res.status(503).json({ msg: error.message });
   }
 };

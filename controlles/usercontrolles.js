@@ -1,101 +1,139 @@
-const isValidEmail = require("../middlewares/emailvalidator")
-const passwordvalidator = require("../middlewares/passwordvalidator")
-const User=require("../models/user")
-const bcrypt = require("bcrypt")
+const isValidEmail = require("../middlewares/emailvalidator");
+const passwordvalidator = require("../middlewares/passwordvalidator");
+const User = require("../models/user");
+const bcrypt = require("bcrypt");
+const { toFrontendUser } = require("../utils/mappers");
 
 function parseOptionalBirthday(raw) {
-    if (raw == null || raw === "") return null
-    const s = String(raw).trim()
-    if (!s) return null
-    const d = new Date(s)
-    if (Number.isNaN(d.getTime())) return null
-    const now = new Date()
-    const min = new Date(1900, 0, 1)
-    if (d > now || d < min) return null
-    return d
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  const min = new Date(1900, 0, 1);
+  if (d > now || d < min) return null;
+  return d;
 }
 
-exports.Adduser=async(req,res)=>{
-    try {
-        const {email,name,password,birthday}=req.body
-        if(req.body.role){
-            return res.status(400).json({ msg: "Not auth !!" })
-        }
-        const ValidEmail=isValidEmail(email)
-         if (!ValidEmail){
-            return res.status(400).json({ msg: "Should be format email" })
-        }
-       const Matcheduser=await User.findOne({email})
-  if( Matcheduser){
-    return res.status(400).json({msg:"Email exist please login"})
+function normalizeRole(role) {
+  const map = {
+    Admin: "admin",
+    Manager: "manager",
+    Support: "support",
+    Customer: "client",
+    admin: "admin",
+    manager: "manager",
+    support: "support",
+    client: "client",
+  };
+  return map[role] || "client";
+}
+
+exports.Adduser = async (req, res) => {
+  try {
+    const { email, name, password, birthday, phone } = req.body;
+    if (req.body.role && !req.user) {
+      return res.status(400).json({ msg: "Not auth !!" });
+    }
+
+    const ValidEmail = isValidEmail(email);
+    if (!ValidEmail) {
+      return res.status(400).json({ msg: "Should be format email" });
+    }
+
+    const Matcheduser = await User.findOne({ email: String(email).toLowerCase() });
+    if (Matcheduser) {
+      return res.status(400).json({ msg: "Email exist please login" });
+    }
+
+    if (!passwordvalidator(password)) {
+      return res.status(400).json({ msg: "Le mot de passe doit contenir au moins 6 caractères." });
+    }
+
+    const birthdayDate = parseOptionalBirthday(birthday);
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      userKey: req.body.userKey || req.body.id || `user-${Date.now()}`,
+      name: name || "",
+      email: String(email).toLowerCase(),
+      password: hashedPassword,
+      phone: phone || "",
+      points: Number(req.body.points) || 0,
+      status: req.body.status || "active",
+      role: req.user?.role === "admin" && req.body.role ? normalizeRole(req.body.role) : "client",
+      ...(birthdayDate ? { birthday: birthdayDate } : {}),
+    });
+
+    return res.status(201).json({ msg: "Register success", user: toFrontendUser(user) });
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
   }
-  if(!passwordvalidator(password)){
-    return res.status(400).json({msg:"Le mot de passe doit contenir au moins 6 caractères."})
+};
+
+exports.Login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const existUser = await User.findOne({ email: String(email).toLowerCase() });
+    if (!existUser) {
+      return res.status(400).json({ msg: "Bad credential !" });
+    }
+
+    const existpassword = await bcrypt.compare(password, existUser.password);
+    if (!existpassword) {
+      return res.status(400).json({ msg: "Bad credential !" });
+    }
+
+    const jwt = require("jsonwebtoken");
+    const payload = { _id: existUser._id };
+    const token = jwt.sign(payload, process.env.secretKey);
+
+    return res.status(200).json({
+      msg: "login success",
+      token,
+      user: toFrontendUser(existUser),
+    });
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
   }
-  const birthdayDate = parseOptionalBirthday(birthday)
-  const user= new User({
-    name,
-    email,
-    password,
-    ...(birthdayDate ? { birthday: birthdayDate } : {}),
-  })
-  const hashedPassword = await bcrypt.hash(password,10); 
-          user.password=hashedPassword
-           await user.save()
-           return res.status(201).json({msg:"Register success"})
-    } catch (error) {
-        return res.status(503).json({msg:error.message})
-    }
-}
+};
 
+exports.getUser = async (req, res) => {
+  try {
+    return res.status(200).json(toFrontendUser(req.user));
+  } catch (error) {
+    return res.status(500).json({ msg: error.message });
+  }
+};
 
-exports.Login=async(req,res)=>{
-    try {
-        const {email,password}=req.body
+exports.getUsers = async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+    return res.status(200).json(users.map(toFrontendUser));
+  } catch (error) {
+    return res.status(500).json({ msg: error.message });
+  }
+};
 
-        const existUser= await User.findOne({email})
-        if (!existUser) {
-            return res.status(400).json({msg:"Bad credential !"})
-        }
-        const existpassword= await bcrypt.compare(password,existUser.password) 
-          if(!existpassword){
-            return res.status(400).json({msg:"Bad credential !"})
-          }
-          const jwt = require("jsonwebtoken")
-          const payload = { _id: existUser._id };
-          const token = jwt.sign(payload, process.env.secretKey);
+exports.UpdateUSER = async (req, res) => {
+  try {
+    const body = { ...req.body };
+    delete body.password;
+    delete body.email;
+    if (body.role != null) body.role = normalizeRole(body.role);
+    if (body.points != null) body.points = Number(body.points) || 0;
 
-          return res.status(200).json({msg:"login success",token})
-    } catch (error) {
-        return res.status(503).json({msg:error.message})
-    }
-}
+    const key = req.params.id;
+    const user = await User.findOneAndUpdate(
+      { $or: [{ userKey: key }, ...( /^[a-f\d]{24}$/i.test(key) ? [{ _id: key }] : []) ] },
+      body,
+      { new: true }
+    ).select("-password");
 
-exports.getUser=async(req,res)=>{
-    try {
-        return res.status(200).send(req.user);
-      } catch (error) {
-        return res.status(500).json(error)
-      }
-}
-
-exports.getUsers=async(req,res)=>{
-    try{
-          const users=await User.find()
-          return res.status(200).json(users)
-
-    }
-    catch{  return res.status(500).json(error)}
-}
-
-exports.UpdateUSER=async(req,res)=>{
-    try {
-     
-    const {body}=req
-    await User.findByIdAndUpdate(req.params.id,body,{new:true})
-        
-       return res.status(202).json({msg:"Update success"})
-    } catch (error) {
-        return res.status(503).json({msg:error.message})
-    }
-}
+    if (!user) return res.status(404).json({ msg: "User not found" });
+    return res.status(202).json({ msg: "Update success", user: toFrontendUser(user) });
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
+  }
+};

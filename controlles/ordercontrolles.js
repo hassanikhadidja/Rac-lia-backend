@@ -1,99 +1,139 @@
 const Order = require("../models/order");
+const { toFrontendOrder } = require("../utils/mappers");
 
-// ── Delivery fee config ──────────────────────────────────────────
-const FREE_DELIVERY_THRESHOLD = 5000; // DA — orders above this get free delivery
-const DELIVERY_FEE = 500;             // DA — flat fee below threshold
+const DELIVERY_FEE = 20;
+const ONLINE_DISCOUNT_RATE = 0.05;
 
-// ── CREATE order (public — no auth required) ─────────────────────
+async function nextOrderNumber() {
+  const count = await Order.countDocuments();
+  return `RA-${String(24000 + count + 1)}`;
+}
+
 exports.CreateOrder = async (req, res) => {
   try {
-    const { customerName, customerEmail, phone, wilaya, commune, items, note } = req.body;
+    const {
+      customerName,
+      customerEmail,
+      phone,
+      wilaya,
+      commune,
+      items,
+      note,
+      paymentMode,
+      paymentMethod,
+    } = req.body;
 
-    if (!items || items.length === 0)
+    if (!items || items.length === 0) {
       return res.status(400).json({ msg: "Order must have at least one item" });
+    }
 
-    const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    const deliveryFee = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
-    const total = subtotal + deliveryFee;
+    const normalizedItems = items.map((item) => ({
+      productSlug: item.productSlug || item.productId || "",
+      name: item.name,
+      price: Number(item.price ?? item.unitPrice) || 0,
+      quantity: Number(item.quantity ?? item.qty) || 1,
+      imageUrl: item.imageUrl || item.img || "",
+      color: item.color || "",
+      selectedHex: item.selectedHex || "",
+    }));
 
-    // Attach userId if the request comes from a logged-in user
-    const userId = req.user ? req.user._id : null;
+    const subtotal = normalizedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const deliveryFee = normalizedItems.length > 0 ? DELIVERY_FEE : 0;
+    const mode = paymentMode === "online" ? "online" : "cod";
+    const beforeDiscount = subtotal + deliveryFee;
+    const discount = mode === "online" ? beforeDiscount * ONLINE_DISCOUNT_RATE : 0;
+    const total = beforeDiscount - discount;
 
-    const order = new Order({
+    const order = await Order.create({
+      orderNumber: await nextOrderNumber(),
       customerName,
       customerEmail: typeof customerEmail === "string" ? customerEmail.trim() : "",
       phone,
       wilaya,
       commune: typeof commune === "string" ? commune.trim() : "",
-      userId,
-      items,
+      userId: req.user ? req.user._id : null,
+      items: normalizedItems,
       subtotal,
       deliveryFee,
+      discount,
       total,
+      paymentMode: mode,
+      paymentMethod: paymentMethod || (mode === "cod" ? "cod" : "visa"),
       note: note || "",
+      status: "processing",
     });
 
-    await order.save();
-    return res.status(201).json({ msg: "Order placed successfully", orderId: order._id });
+    return res.status(201).json({
+      msg: "Order placed successfully",
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      order: toFrontendOrder(order),
+    });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── GET all orders (admin only) ───────────────────────────────────
 exports.GetOrders = async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
-    return res.status(200).json(orders);
+    return res.status(200).json(orders.map(toFrontendOrder));
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── GET single order ─────────────────────────────────────────────
 exports.GetOrder = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const key = req.params.id;
+    const order = await Order.findOne({
+      $or: [{ orderNumber: key }, ...( /^[a-f\d]{24}$/i.test(key) ? [{ _id: key }] : []) ],
+    });
     if (!order) return res.status(404).json({ msg: "Order not found" });
-    return res.status(200).json(order);
+    return res.status(200).json(toFrontendOrder(order));
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── UPDATE order status (admin only) ─────────────────────────────
 exports.UpdateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const allowed = ["pending", "confirmed", "shipped", "delivered", "cancelled"];
-    if (!allowed.includes(status))
+    const allowed = ["processing", "on_way", "delivered", "cancelled"];
+    if (!allowed.includes(status)) {
       return res.status(400).json({ msg: "Invalid status value" });
+    }
 
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
+    const key = req.params.id;
+    const order = await Order.findOneAndUpdate(
+      { $or: [{ orderNumber: key }, ...( /^[a-f\d]{24}$/i.test(key) ? [{ _id: key }] : []) ] },
       { status },
-      { returnDocument: "after" }
+      { new: true }
     );
     if (!order) return res.status(404).json({ msg: "Order not found" });
-    return res.status(200).json({ msg: "Status updated", order });
+    return res.status(200).json({ msg: "Status updated", order: toFrontendOrder(order) });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── DELETE order (admin only) ─────────────────────────────────────
 exports.DeleteOrder = async (req, res) => {
   try {
-    const result = await Order.deleteOne({ _id: req.params.id });
-    if (result.deletedCount === 0)
-      return res.status(404).json({ msg: "Order not found" });
+    const key = req.params.id;
+    const result = await Order.deleteOne({
+      $or: [{ orderNumber: key }, ...( /^[a-f\d]{24}$/i.test(key) ? [{ _id: key }] : []) ],
+    });
+    if (result.deletedCount === 0) return res.status(404).json({ msg: "Order not found" });
     return res.status(200).json({ msg: "Order deleted" });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
 };
 
-// ── Export config so frontend can use same values ─────────────────
 exports.GetConfig = (req, res) => {
-  res.json({ freeDeliveryThreshold: FREE_DELIVERY_THRESHOLD, deliveryFee: DELIVERY_FEE });
+  res.json({
+    deliveryFee: DELIVERY_FEE,
+    onlineDiscountRate: ONLINE_DISCOUNT_RATE,
+    currency: "EUR",
+  });
 };
