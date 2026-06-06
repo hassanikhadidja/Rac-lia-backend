@@ -2,7 +2,18 @@ const isValidEmail = require("../middlewares/emailvalidator");
 const passwordvalidator = require("../middlewares/passwordvalidator");
 const User = require("../models/user");
 const bcrypt = require("bcrypt");
+const cloudinary = require("../config/cloudinary");
 const { toFrontendUser } = require("../utils/mappers");
+
+const uploadOne = (buffer) =>
+  new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream({ folder: cloudinary.UPLOAD_FOLDER }, (err, result) => {
+        if (err) reject(err);
+        else resolve(result.secure_url);
+      })
+      .end(buffer);
+  });
 
 function parseOptionalBirthday(raw) {
   if (raw == null || raw === "") return null;
@@ -128,6 +139,11 @@ exports.updateMyProfile = async (req, res) => {
     if (birthday != null) {
       const d = birthday ? new Date(birthday) : null;
       update.birthday = d && !Number.isNaN(d.getTime()) ? d : null;
+    }
+    if (req.file?.buffer) {
+      update.avatar = await uploadOne(req.file.buffer);
+    } else if (req.body.avatar != null) {
+      update.avatar = String(req.body.avatar).trim();
     }
 
     const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("-password");

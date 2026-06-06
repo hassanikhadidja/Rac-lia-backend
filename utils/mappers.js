@@ -198,6 +198,7 @@ function toFrontendUser(doc) {
     wilaya: u.wilaya || "",
     commune: u.commune || "",
     birthday: u.birthday || null,
+    avatar: u.avatar || "",
     createdAt: u.createdAt ? new Date(u.createdAt).getTime() : Date.now(),
   };
 }
