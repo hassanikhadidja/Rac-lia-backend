@@ -17,17 +17,29 @@ const styleLookRoutes = require("./routes/styleLookRoutes");
 
 const cors = require("cors");
 
-module.exports = app;
-
 const corsOptions = {
   origin: process.env.FRONTEND_ORIGIN || "*",
   credentials: true,
 };
 
+const isVercel = process.env.VERCEL === "1";
+
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+if (isVercel) {
+  app.use(async (req, res, next) => {
+    try {
+      await connectDB();
+      next();
+    } catch (err) {
+      console.error("Failed to connect to database:", err);
+      return res.status(503).json({ message: "Database unavailable" });
+    }
+  });
+}
 
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "racelia-backend" });
@@ -60,4 +72,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (isVercel) {
+  module.exports = app;
+} else {
+  startServer();
+}
