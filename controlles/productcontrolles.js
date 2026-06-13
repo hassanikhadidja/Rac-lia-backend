@@ -58,8 +58,12 @@ async function findProductByIdOrSlug(idOrSlug) {
 
 function buildProductBody(body, uploadedUrls = []) {
   const data = { ...body };
+  data.name = String(data.name || "").trim();
   const slug = String(data.slug || data.id || "").trim().toLowerCase() || slugify(data.name);
   data.slug = slug;
+  if (!data.name && slug) {
+    data.name = slug.replace(/-/g, " ");
+  }
 
   if (data.price != null) {
     data.price = String(data.price);
@@ -164,6 +168,7 @@ exports.UpdateProduct = async (req, res) => {
 
     const newUrls = await uploadAll(req.files);
     const updateData = buildProductBody(req.body, newUrls);
+    if (!updateData.name) updateData.name = existing.name;
 
     if (updateData.slug && updateData.slug !== existing.slug) {
       const clash = await Product.findOne({ slug: updateData.slug, _id: { $ne: existing._id } });
