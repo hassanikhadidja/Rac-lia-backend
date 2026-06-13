@@ -11,34 +11,46 @@ const PRODUCT_SECTIONS = [
 function toFrontendProduct(doc) {
   if (!doc) return null;
   const p = doc.toObject ? doc.toObject() : doc;
-  const cardImages = Array.isArray(p.cardImages) ? p.cardImages.filter(Boolean) : [];
-  const coverImage = p.coverImage || cardImages[0] || "";
-  const images = coverImage
-    ? [coverImage, ...cardImages.filter((url) => url !== coverImage)]
-    : cardImages;
+  const cardCover = p.cardCover || p.coverImage || "";
+  const cardScroll = Array.isArray(p.cardScroll) && p.cardScroll.length
+    ? p.cardScroll.filter(Boolean)
+    : Array.isArray(p.cardImages)
+      ? p.cardImages.filter((url) => url && url !== cardCover)
+      : [];
 
   return {
     id: p.slug,
     _id: String(p._id),
     name: p.name || "",
     tag: p.tag || "",
-    price: p.price || formatPriceEur(p.priceAmount || 0),
+    price: p.price || "",
+    priceAmountDzd: p.priceAmountDzd || 0,
     stockNote: p.stockNote || "",
     description: p.description || "",
     isPack: Boolean(p.isPack),
+    isNewArrival: Boolean(p.isNewArrival),
+    hasColorImages: Boolean(p.hasColorImages),
     packLabel: p.packLabel || "",
     sections: Array.isArray(p.sections) ? p.sections : ["all-selection"],
-    coverImage,
-    cardImages: images,
+    cardCover,
+    cardScroll,
+    pdpCover: p.pdpCover || cardCover,
+    pdpScroll: Array.isArray(p.pdpScroll) ? p.pdpScroll.filter(Boolean) : cardScroll,
+    coverImage: cardCover,
+    cardImages: cardCover ? [cardCover, ...cardScroll] : cardScroll,
+    closerLookExtra: Array.isArray(p.closerLookExtra)
+      ? p.closerLookExtra.filter(Boolean)
+      : Array.isArray(p.closerLookImages)
+        ? p.closerLookImages
+        : [],
     closerLookImages: Array.isArray(p.closerLookImages) ? p.closerLookImages : [],
     closerLookMain: {
-      image: p.closerLookMain?.image || images[1] || coverImage,
+      image: p.closerLookMain?.image || cardScroll[0] || cardCover,
       title: p.closerLookMain?.title || "A Closer Look",
-      text:
-        p.closerLookMain?.text ||
-        "Refined pebble leather with a polished finish — casual meets dressy, designed for everyday elegance.",
+      text: p.closerLookMain?.text || "",
     },
     colors: Array.isArray(p.colors) ? p.colors : [],
+    colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
     materials: p.materials || "",
     size: p.size || "",
     filters: Array.isArray(p.filters) ? p.filters : [],

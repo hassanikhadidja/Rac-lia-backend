@@ -77,15 +77,39 @@ function buildProductBody(body, uploadedUrls = []) {
   if (data.closerLookMain != null) data.closerLookMain = parseJsonField(data.closerLookMain, {});
 
   if (data.isPack !== undefined) data.isPack = data.isPack === true || data.isPack === "true";
+  if (data.isNewArrival !== undefined) {
+    data.isNewArrival = data.isNewArrival === true || data.isNewArrival === "true";
+  }
+  if (data.hasColorImages !== undefined) {
+    data.hasColorImages = data.hasColorImages === true || data.hasColorImages === "true";
+  }
+  if (data.priceAmountDzd != null) data.priceAmountDzd = Number(data.priceAmountDzd) || 0;
+  if (data.cardScroll != null) data.cardScroll = parseStringArray(data.cardScroll);
+  if (data.pdpScroll != null) data.pdpScroll = parseStringArray(data.pdpScroll);
+  if (data.closerLookExtra != null) data.closerLookExtra = parseStringArray(data.closerLookExtra);
+  if (data.colorVariants != null) data.colorVariants = parseJsonField(data.colorVariants, []);
   if (data.stockNote === undefined) data.stockNote = data.stockNote || "";
+
+  if (data.cardCover != null) data.cardCover = String(data.cardCover || "");
+  if (data.pdpCover != null) data.pdpCover = String(data.pdpCover || "");
+  if (data.coverImage != null) data.coverImage = String(data.coverImage || "");
 
   let keepImgs = data.keepImgs || data.cardImages || [];
   if (typeof keepImgs === "string") keepImgs = keepImgs ? [keepImgs] : [];
   if (uploadedUrls.length) {
-    data.cardImages = [...keepImgs, ...uploadedUrls];
-    if (!data.coverImage && data.cardImages[0]) data.coverImage = data.cardImages[0];
+    data.cardImages = [...keepImgs.filter(Boolean), ...uploadedUrls];
+    if (!data.cardCover) data.cardCover = uploadedUrls[0];
+    if (!data.coverImage) data.coverImage = data.cardCover || uploadedUrls[0];
+    if (!data.pdpCover) data.pdpCover = data.cardCover;
   } else if (Array.isArray(keepImgs) && keepImgs.length) {
     data.cardImages = keepImgs;
+    if (!data.cardCover && keepImgs[0]) data.cardCover = keepImgs[0];
+    if (!data.coverImage && data.cardCover) data.coverImage = data.cardCover;
+  } else if (data.cardCover) {
+    data.coverImage = data.coverImage || data.cardCover;
+    data.cardImages = data.cardCover
+      ? [data.cardCover, ...(Array.isArray(data.cardScroll) ? data.cardScroll.filter(Boolean) : [])]
+      : [];
   }
 
   delete data.keepImgs;
