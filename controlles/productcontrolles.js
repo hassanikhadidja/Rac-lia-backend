@@ -43,8 +43,33 @@ const uploadOne = (buffer) =>
       .end(buffer);
   });
 
-const uploadAll = (files) =>
-  files && files.length > 0 ? Promise.all(files.map((f) => uploadOne(f.buffer))) : Promise.resolve([]);
+const VALID_STOCK_NOTES = ["", "new", "dispo", "sold-out", "not"];
+const VALID_SECTIONS = [
+  "mini-bags",
+  "racelia-handbag",
+  "moms-bags",
+  "all-selection",
+  "metiers-dart",
+];
+
+function cleanStoredUrl(value) {
+  const text = String(value || "").trim();
+  if (!text || text.startsWith("data:")) return "";
+  return text;
+}
+
+function cleanUrlList(values) {
+  if (!Array.isArray(values)) return [];
+  return values.map((value) => cleanStoredUrl(value)).filter(Boolean);
+}
+
+const uploadAll = async (files) => {
+  if (!files?.length) return [];
+  if (!process.env.CLOUDINARY_NAME) {
+    throw new Error("Cloudinary is not configured on the server");
+  }
+  return Promise.all(files.map((file) => uploadOne(file.buffer)));
+};
 
 async function findProductByIdOrSlug(idOrSlug) {
   if (!idOrSlug) return null;
@@ -92,7 +117,34 @@ function buildProductBody(body, uploadedUrls = []) {
   if (data.pdpScroll != null) data.pdpScroll = parseStringArray(data.pdpScroll);
   if (data.closerLookExtra != null) data.closerLookExtra = parseStringArray(data.closerLookExtra);
   if (data.colorVariants != null) data.colorVariants = parseJsonField(data.colorVariants, []);
-  if (data.stockNote === undefined) data.stockNote = data.stockNote || "";
+  if (!VALID_STOCK_NOTES.includes(String(data.stockNote || ""))) data.stockNote = "";
+  if (Array.isArray(data.sections)) {
+    data.sections = data.sections.filter((section) => VALID_SECTIONS.includes(section));
+    if (!data.sections.length) data.sections = ["all-selection"];
+  }
+
+  data.cardCover = cleanStoredUrl(data.cardCover);
+  data.pdpCover = cleanStoredUrl(data.pdpCover);
+  data.coverImage = cleanStoredUrl(data.coverImage);
+  data.cardScroll = cleanUrlList(data.cardScroll);
+  data.pdpScroll = cleanUrlList(data.pdpScroll);
+  data.closerLookExtra = cleanUrlList(data.closerLookExtra);
+  data.cardImages = cleanUrlList(data.cardImages);
+  data.closerLookImages = cleanUrlList(data.closerLookImages);
+  if (data.closerLookMain && typeof data.closerLookMain === "object") {
+    data.closerLookMain.image = cleanStoredUrl(data.closerLookMain.image);
+  }
+  if (Array.isArray(data.colorVariants)) {
+    data.colorVariants = data.colorVariants.map((variant) => ({
+      ...variant,
+      cardCover: cleanStoredUrl(variant.cardCover),
+      pdpCover: cleanStoredUrl(variant.pdpCover),
+      closerLookMain: cleanStoredUrl(variant.closerLookMain),
+      cardScroll: cleanUrlList(variant.cardScroll),
+      pdpScroll: cleanUrlList(variant.pdpScroll),
+      closerLookExtra: cleanUrlList(variant.closerLookExtra),
+    }));
+  }
 
   if (data.cardCover != null) data.cardCover = String(data.cardCover || "");
   if (data.pdpCover != null) data.pdpCover = String(data.pdpCover || "");
@@ -134,6 +186,7 @@ exports.AddProduct = async (req, res) => {
     const product = await Product.create(body);
     return res.status(201).json({ msg: "Product added", product: toFrontendProduct(product) });
   } catch (error) {
+    console.error("AddProduct failed:", error.message);
     return res.status(503).json({ msg: error.message });
   }
 };
@@ -178,6 +231,7 @@ exports.UpdateProduct = async (req, res) => {
     const product = await Product.findByIdAndUpdate(existing._id, updateData, { new: true });
     return res.status(200).json({ msg: "Update success", product: toFrontendProduct(product) });
   } catch (error) {
+    console.error("UpdateProduct failed:", error.message);
     return res.status(503).json({ msg: error.message });
   }
 };

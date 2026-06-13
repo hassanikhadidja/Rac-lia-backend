@@ -25,6 +25,9 @@ exports.Auth = async (req, res, next) => {
    req.user = user; 
     next();
   } catch (error) {
-    return res.status(500).json({ msg:error.message });
+    const message = error.name === "JsonWebTokenError" || error.name === "TokenExpiredError"
+      ? "Session expired. Please sign in again."
+      : error.message;
+    return res.status(401).json({ msg: message });
   }
 };
