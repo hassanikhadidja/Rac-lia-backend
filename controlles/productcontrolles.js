@@ -43,33 +43,36 @@ const uploadOne = (buffer) =>
       .end(buffer);
   });
 
-const VALID_STOCK_NOTES = ["", "new", "dispo", "sold-out", "not"];
-const VALID_SECTIONS = [
-  "mini-bags",
-  "racelia-handbag",
-  "moms-bags",
-  "all-selection",
-  "metiers-dart",
-];
+const uploadAll = (files) =>
+  files && files.length > 0 ? Promise.all(files.map((f) => uploadOne(f.buffer))) : Promise.resolve([]);
 
-function cleanStoredUrl(value) {
-  const text = String(value || "").trim();
-  if (!text || text.startsWith("data:")) return "";
-  return text;
+async function resolveImageUrl(url) {
+  if (!url || typeof url !== "string") return "";
+  if (!url.startsWith("data:")) return url;
+  const base64 = url.split(",")[1];
+  if (!base64) return "";
+  return uploadOne(Buffer.from(base64, "base64"));
 }
 
-function cleanUrlList(values) {
-  if (!Array.isArray(values)) return [];
-  return values.map((value) => cleanStoredUrl(value)).filter(Boolean);
+async function resolveImageList(urls) {
+  if (!Array.isArray(urls)) return [];
+  return Promise.all(urls.map((url) => resolveImageUrl(url)));
 }
 
-const uploadAll = async (files) => {
-  if (!files?.length) return [];
-  if (!process.env.CLOUDINARY_NAME) {
-    throw new Error("Cloudinary is not configured on the server");
-  }
-  return Promise.all(files.map((file) => uploadOne(file.buffer)));
-};
+async function resolveColorVariants(variants) {
+  if (!Array.isArray(variants)) return [];
+  return Promise.all(
+    variants.map(async (variant) => ({
+      ...variant,
+      cardCover: await resolveImageUrl(variant.cardCover),
+      pdpCover: await resolveImageUrl(variant.pdpCover),
+      closerLookMain: await resolveImageUrl(variant.closerLookMain),
+      cardScroll: await resolveImageList(variant.cardScroll),
+      pdpScroll: await resolveImageList(variant.pdpScroll),
+      closerLookExtra: await resolveImageList(variant.closerLookExtra),
+    }))
+  );
+}
 
 async function findProductByIdOrSlug(idOrSlug) {
   if (!idOrSlug) return null;
@@ -83,12 +86,8 @@ async function findProductByIdOrSlug(idOrSlug) {
 
 function buildProductBody(body, uploadedUrls = []) {
   const data = { ...body };
-  data.name = String(data.name || "").trim();
   const slug = String(data.slug || data.id || "").trim().toLowerCase() || slugify(data.name);
   data.slug = slug;
-  if (!data.name && slug) {
-    data.name = slug.replace(/-/g, " ");
-  }
 
   if (data.price != null) {
     data.price = String(data.price);
@@ -117,55 +116,22 @@ function buildProductBody(body, uploadedUrls = []) {
   if (data.pdpScroll != null) data.pdpScroll = parseStringArray(data.pdpScroll);
   if (data.closerLookExtra != null) data.closerLookExtra = parseStringArray(data.closerLookExtra);
   if (data.colorVariants != null) data.colorVariants = parseJsonField(data.colorVariants, []);
-  if (!VALID_STOCK_NOTES.includes(String(data.stockNote || ""))) data.stockNote = "";
-  if (Array.isArray(data.sections)) {
-    data.sections = data.sections.filter((section) => VALID_SECTIONS.includes(section));
-    if (!data.sections.length) data.sections = ["all-selection"];
-  }
-
-  data.cardCover = cleanStoredUrl(data.cardCover);
-  data.pdpCover = cleanStoredUrl(data.pdpCover);
-  data.coverImage = cleanStoredUrl(data.coverImage);
-  data.cardScroll = cleanUrlList(data.cardScroll);
-  data.pdpScroll = cleanUrlList(data.pdpScroll);
-  data.closerLookExtra = cleanUrlList(data.closerLookExtra);
-  data.cardImages = cleanUrlList(data.cardImages);
-  data.closerLookImages = cleanUrlList(data.closerLookImages);
-  if (data.closerLookMain && typeof data.closerLookMain === "object") {
-    data.closerLookMain.image = cleanStoredUrl(data.closerLookMain.image);
-  }
-  if (Array.isArray(data.colorVariants)) {
-    data.colorVariants = data.colorVariants.map((variant) => ({
-      ...variant,
-      cardCover: cleanStoredUrl(variant.cardCover),
-      pdpCover: cleanStoredUrl(variant.pdpCover),
-      closerLookMain: cleanStoredUrl(variant.closerLookMain),
-      cardScroll: cleanUrlList(variant.cardScroll),
-      pdpScroll: cleanUrlList(variant.pdpScroll),
-      closerLookExtra: cleanUrlList(variant.closerLookExtra),
-    }));
-  }
-
-  if (data.cardCover != null) data.cardCover = String(data.cardCover || "");
-  if (data.pdpCover != null) data.pdpCover = String(data.pdpCover || "");
-  if (data.coverImage != null) data.coverImage = String(data.coverImage || "");
+  if (data.stockNote === undefined) data.stockNote = data.stockNote || "";
 
   let keepImgs = data.keepImgs || data.cardImages || [];
   if (typeof keepImgs === "string") keepImgs = keepImgs ? [keepImgs] : [];
   if (uploadedUrls.length) {
-    data.cardImages = [...keepImgs.filter(Boolean), ...uploadedUrls];
-    if (!data.cardCover) data.cardCover = uploadedUrls[0];
-    if (!data.coverImage) data.coverImage = data.cardCover || uploadedUrls[0];
-    if (!data.pdpCover) data.pdpCover = data.cardCover;
+    data.cardImages = [...keepImgs, ...uploadedUrls];
+    if (!data.coverImage && data.cardImages[0]) data.coverImage = data.cardImages[0];
   } else if (Array.isArray(keepImgs) && keepImgs.length) {
     data.cardImages = keepImgs;
-    if (!data.cardCover && keepImgs[0]) data.cardCover = keepImgs[0];
-    if (!data.coverImage && data.cardCover) data.coverImage = data.cardCover;
-  } else if (data.cardCover) {
-    data.coverImage = data.coverImage || data.cardCover;
-    data.cardImages = data.cardCover
-      ? [data.cardCover, ...(Array.isArray(data.cardScroll) ? data.cardScroll.filter(Boolean) : [])]
-      : [];
+  }
+
+  if (data.cardCover && !data.coverImage) data.coverImage = data.cardCover;
+  if (!data.cardCover && data.coverImage) data.cardCover = data.coverImage;
+  if (!data.pdpCover && data.cardCover) data.pdpCover = data.cardCover;
+  if (!data.cardImages?.length && data.cardCover) {
+    data.cardImages = [data.cardCover, ...(data.cardScroll || [])].filter(Boolean);
   }
 
   delete data.keepImgs;
@@ -173,10 +139,46 @@ function buildProductBody(body, uploadedUrls = []) {
   return data;
 }
 
+async function buildProductBodyAsync(body, uploadedUrls = []) {
+  const data = buildProductBody(body, uploadedUrls);
+
+  data.cardCover = await resolveImageUrl(data.cardCover);
+  data.coverImage = await resolveImageUrl(data.coverImage || data.cardCover);
+  data.pdpCover = await resolveImageUrl(data.pdpCover || data.cardCover);
+  data.cardScroll = await resolveImageList(data.cardScroll);
+  data.pdpScroll = await resolveImageList(data.pdpScroll?.length ? data.pdpScroll : data.cardScroll);
+  data.closerLookExtra = await resolveImageList(data.closerLookExtra);
+
+  if (data.closerLookMain && typeof data.closerLookMain === "object") {
+    data.closerLookMain = {
+      ...data.closerLookMain,
+      image: await resolveImageUrl(data.closerLookMain.image || data.cardScroll[0] || data.cardCover),
+    };
+  }
+
+  data.colorVariants = await resolveColorVariants(data.colorVariants);
+
+  if (!data.cardImages?.length && data.cardCover) {
+    data.cardImages = [data.cardCover, ...data.cardScroll.filter((url) => url !== data.cardCover)];
+  }
+
+  return data;
+}
+
+exports.uploadProductImage = async (req, res) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ msg: "Image file required" });
+    const url = await uploadOne(req.file.buffer);
+    return res.status(200).json({ url });
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
+  }
+};
+
 exports.AddProduct = async (req, res) => {
   try {
     const urls = await uploadAll(req.files);
-    const body = buildProductBody(req.body, urls);
+    const body = await buildProductBodyAsync(req.body, urls);
 
     if (!body.name) return res.status(400).json({ msg: "Product name is required" });
 
@@ -186,7 +188,6 @@ exports.AddProduct = async (req, res) => {
     const product = await Product.create(body);
     return res.status(201).json({ msg: "Product added", product: toFrontendProduct(product) });
   } catch (error) {
-    console.error("AddProduct failed:", error.message);
     return res.status(503).json({ msg: error.message });
   }
 };
@@ -220,8 +221,7 @@ exports.UpdateProduct = async (req, res) => {
     if (!existing) return res.status(404).json({ msg: "Product not found" });
 
     const newUrls = await uploadAll(req.files);
-    const updateData = buildProductBody(req.body, newUrls);
-    if (!updateData.name) updateData.name = existing.name;
+    const updateData = await buildProductBodyAsync(req.body, newUrls);
 
     if (updateData.slug && updateData.slug !== existing.slug) {
       const clash = await Product.findOne({ slug: updateData.slug, _id: { $ne: existing._id } });
@@ -231,7 +231,6 @@ exports.UpdateProduct = async (req, res) => {
     const product = await Product.findByIdAndUpdate(existing._id, updateData, { new: true });
     return res.status(200).json({ msg: "Update success", product: toFrontendProduct(product) });
   } catch (error) {
-    console.error("UpdateProduct failed:", error.message);
     return res.status(503).json({ msg: error.message });
   }
 };

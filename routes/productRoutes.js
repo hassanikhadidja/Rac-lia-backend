@@ -6,6 +6,7 @@ const { Auth } = require("../middlewares/isAuth");
 const isAdmin = require("../middlewares/isAdmin");
 
 router.get("/", controlles.GetProducts);
+router.post("/upload-image", upload.single("file"), Auth, isAdmin, controlles.uploadProductImage);
 router.get("/:idOrSlug", controlles.GetOneProduct);
 
 router.post("/", upload.array("files", 10), Auth, isAdmin, controlles.AddProduct);

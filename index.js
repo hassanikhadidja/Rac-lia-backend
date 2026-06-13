@@ -16,31 +16,17 @@ const reviewRoutes = require("./routes/reviewRoutes");
 const styleLookRoutes = require("./routes/styleLookRoutes");
 
 const cors = require("cors");
-const multer = require("multer");
 
 module.exports = app;
 
 const corsOptions = {
-  origin: process.env.FRONTEND_ORIGIN
-    ? process.env.FRONTEND_ORIGIN.split(",").map((value) => value.trim())
-    : true,
+  origin: process.env.FRONTEND_ORIGIN || "*",
   credentials: true,
-  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    return res.status(503).json({ msg: error.message || "Database unavailable" });
-  }
-});
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.get("/health", (req, res) => {
@@ -56,17 +42,6 @@ app.use("/webpic", webPicRoutes);
 app.use("/review", reviewRoutes);
 app.use("/style", styleLookRoutes);
 
-app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({ msg: `Upload error: ${err.message}` });
-  }
-  if (err) {
-    console.error("RACÈLIA backend error:", err.message);
-    return res.status(500).json({ msg: err.message || "Server error" });
-  }
-  return next();
-});
-
 app.use((req, res) => {
   return res.status(404).json({ message: "Route not found" });
 });
@@ -74,6 +49,8 @@ app.use((req, res) => {
 const startServer = async () => {
   try {
     await connectDB();
+    console.log("Database connected successfully");
+
     app.listen(PORT, () => {
       console.log(`RACÈLIA backend running on port ${PORT}`);
     });
@@ -83,6 +60,4 @@ const startServer = async () => {
   }
 };
 
-if (!process.env.VERCEL) {
-  startServer();
-}
+startServer();
