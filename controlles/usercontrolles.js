@@ -4,6 +4,7 @@ const User = require("../models/user");
 const bcrypt = require("bcrypt");
 const cloudinary = require("../config/cloudinary");
 const { toFrontendUser } = require("../utils/mappers");
+const { upsertCollectedEmailDoc } = require("../utils/upsertCollectedEmail");
 
 const uploadOne = (buffer) =>
   new Promise((resolve, reject) => {
@@ -75,6 +76,14 @@ exports.Adduser = async (req, res) => {
       status: req.body.status || "active",
       role: req.user?.role === "admin" && req.body.role ? normalizeRole(req.body.role) : "client",
       ...(birthdayDate ? { birthday: birthdayDate } : {}),
+      newsletter: true,
+    });
+
+    await upsertCollectedEmailDoc({
+      email: user.email,
+      name: user.name || "",
+      newsletter: true,
+      source: "account",
     });
 
     return res.status(201).json({ msg: "Register success", user: toFrontendUser(user) });
@@ -130,15 +139,21 @@ exports.getUsers = async (req, res) => {
 exports.updateMyProfile = async (req, res) => {
   try {
     const update = {};
-    const { name, phone, address, wilaya, commune, birthday } = req.body;
+    const { name, phone, address, wilaya, commune, birthday, newsletter } = req.body;
     if (name != null) update.name = String(name).trim();
     if (phone != null) update.phone = String(phone).trim();
     if (address != null) update.address = String(address).trim();
     if (wilaya != null) update.wilaya = String(wilaya).trim();
     if (commune != null) update.commune = String(commune).trim();
+    if (newsletter != null) {
+      update.newsletter = newsletter === true || newsletter === "true" || newsletter === "yes" || newsletter === "1";
+    }
     if (birthday != null) {
-      const d = birthday ? new Date(birthday) : null;
-      update.birthday = d && !Number.isNaN(d.getTime()) ? d : null;
+      const current = await User.findById(req.user._id).select("birthday");
+      if (current && !current.birthday) {
+        const d = parseOptionalBirthday(birthday);
+        if (d) update.birthday = d;
+      }
     }
     if (req.file?.buffer) {
       update.avatar = await uploadOne(req.file.buffer);
@@ -148,6 +163,17 @@ exports.updateMyProfile = async (req, res) => {
 
     const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("-password");
     if (!user) return res.status(404).json({ msg: "User not found" });
+
+    if (update.newsletter != null || update.name != null) {
+      await upsertCollectedEmailDoc({
+        email: user.email,
+        name: user.name || "",
+        newsletter: user.newsletter !== false,
+        source: "account",
+        forceNewsletter: update.newsletter != null,
+      });
+    }
+
     return res.status(200).json({ msg: "Update success", user: toFrontendUser(user) });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
@@ -157,10 +183,29 @@ exports.updateMyProfile = async (req, res) => {
 exports.UpdateUSER = async (req, res) => {
   try {
     const body = { ...req.body };
-    delete body.password;
     delete body.email;
+    delete body._id;
+    delete body.id;
+    delete body.userKey;
+
     if (body.role != null) body.role = normalizeRole(body.role);
     if (body.points != null) body.points = Number(body.points) || 0;
+    if (body.newsletter != null) {
+      body.newsletter =
+        body.newsletter === true ||
+        body.newsletter === "true" ||
+        body.newsletter === "yes" ||
+        body.newsletter === "1";
+    }
+
+    if (body.password != null && String(body.password).trim() !== "") {
+      if (!passwordvalidator(body.password)) {
+        return res.status(400).json({ msg: "Le mot de passe doit contenir au moins 6 caractères." });
+      }
+      body.password = await bcrypt.hash(String(body.password), 10);
+    } else {
+      delete body.password;
+    }
 
     const key = req.params.id;
     const user = await User.findOneAndUpdate(
@@ -170,6 +215,17 @@ exports.UpdateUSER = async (req, res) => {
     ).select("-password");
 
     if (!user) return res.status(404).json({ msg: "User not found" });
+
+    if (body.newsletter != null || body.name != null) {
+      await upsertCollectedEmailDoc({
+        email: user.email,
+        name: user.name || "",
+        newsletter: user.newsletter !== false,
+        source: "account",
+        forceNewsletter: body.newsletter != null,
+      });
+    }
+
     return res.status(202).json({ msg: "Update success", user: toFrontendUser(user) });
   } catch (error) {
     return res.status(503).json({ msg: error.message });

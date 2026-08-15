@@ -108,6 +108,9 @@ function buildProductBody(body, uploadedUrls = []) {
   if (data.isNewArrival !== undefined) {
     data.isNewArrival = data.isNewArrival === true || data.isNewArrival === "true";
   }
+  if (data.inSalesReport !== undefined) {
+    data.inSalesReport = data.inSalesReport === true || data.inSalesReport === "true";
+  }
   if (data.hasColorImages !== undefined) {
     data.hasColorImages = data.hasColorImages === true || data.hasColorImages === "true";
   }

@@ -21,6 +21,8 @@ exports.CreateOrder = async (req, res) => {
       note,
       paymentMode,
       paymentMethod,
+      promoCode,
+      loyaltyDiscount: loyaltyDiscountRaw,
     } = req.body;
 
     if (!items || items.length === 0) {
@@ -40,9 +42,11 @@ exports.CreateOrder = async (req, res) => {
     const subtotal = normalizedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
     const deliveryFee = normalizedItems.length > 0 ? DELIVERY_FEE : 0;
     const mode = paymentMode === "online" ? "online" : "cod";
-    const beforeDiscount = subtotal + deliveryFee;
-    const discount = mode === "online" ? beforeDiscount * ONLINE_DISCOUNT_RATE : 0;
-    const total = beforeDiscount - discount;
+    const loyaltyDiscount = Math.min(subtotal, Math.max(0, Number(loyaltyDiscountRaw) || 0));
+    const afterLoyalty = Math.max(0, subtotal - loyaltyDiscount);
+    const onlineDiscount = mode === "online" ? (afterLoyalty + deliveryFee) * ONLINE_DISCOUNT_RATE : 0;
+    const discount = loyaltyDiscount + onlineDiscount;
+    const total = Math.max(0, afterLoyalty + deliveryFee - onlineDiscount);
 
     const order = await Order.create({
       orderNumber: await nextOrderNumber(),
@@ -56,11 +60,13 @@ exports.CreateOrder = async (req, res) => {
       subtotal,
       deliveryFee,
       discount,
+      loyaltyDiscount,
+      promoCode: typeof promoCode === "string" ? promoCode.trim() : "",
       total,
       paymentMode: mode,
       paymentMethod: paymentMethod || (mode === "cod" ? "cod" : "visa"),
       note: note || "",
-      status: "processing",
+      status: "pending",
     });
 
     return res.status(201).json({
@@ -110,16 +116,25 @@ exports.GetOrder = async (req, res) => {
 
 exports.UpdateOrderStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const allowed = ["processing", "on_way", "delivered", "cancelled"];
+    const { status, issueComment } = req.body;
+    const allowed = ["pending", "processing", "confirmed", "on_way", "delivered", "received", "not_received", "order_issue", "cancelled"];
     if (!allowed.includes(status)) {
       return res.status(400).json({ msg: "Invalid status value" });
     }
 
+    const comment = typeof issueComment === "string" ? issueComment.trim() : "";
+    if (status === "order_issue" && !comment) {
+      return res.status(400).json({ msg: "A comment is required for order issue" });
+    }
+
     const key = req.params.id;
+    const update = { status };
+    if (status === "order_issue") update.issueComment = comment;
+    else if (issueComment !== undefined) update.issueComment = comment;
+
     const order = await Order.findOneAndUpdate(
       { $or: [{ orderNumber: key }, ...( /^[a-f\d]{24}$/i.test(key) ? [{ _id: key }] : []) ] },
-      { status },
+      update,
       { new: true }
     );
     if (!order) return res.status(404).json({ msg: "Order not found" });

@@ -3,9 +3,10 @@ const router = express.Router();
 const usercontrolles=require("../controlles/usercontrolles");
 const { Auth } = require('../middlewares/isAuth');
 const isAdmin = require('../middlewares/isAdmin');
+const { optionalAuth } = require('../middlewares/optionalAuth');
 const upload = require("../utils/multer");
 
-router.post("/register",usercontrolles.Adduser)
+router.post("/register", optionalAuth, usercontrolles.Adduser)
 router.post("/login",usercontrolles.Login)
 
 router.get("/getcurrentuser", Auth, usercontrolles.getUser);
@@ -13,7 +14,7 @@ router.patch("/me", Auth, upload.single("avatar"), usercontrolles.updateMyProfil
 
 router.get("/", Auth, isAdmin, usercontrolles.getUsers);
 
-router.patch("/:id",Auth,usercontrolles.UpdateUSER)
+router.patch("/:id", Auth, isAdmin, usercontrolles.UpdateUSER)
 
 
 module.exports=router

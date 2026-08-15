@@ -8,11 +8,13 @@ const bcrypt = require("bcrypt");
 const connectDB = require("../config/connectDB");
 const Product = require("../models/product");
 const Blog = require("../models/blog");
-const WebPic = require("../models/webPic");
 const StyleLook = require("../models/styleLook");
 const Review = require("../models/review");
 const User = require("../models/user");
+const CollectedEmail = require("../models/collectedEmail");
+const ReturnRequest = require("../models/returnRequest");
 const { parsePrice } = require("../utils/parsePrice");
+const { upsertCollectedEmailDoc } = require("../utils/upsertCollectedEmail");
 
 const img = {
   bag1: "https://images.unsplash.com/photo-1591561954557-26941169b49e?auto=format&fit=crop&w=800&q=80",
@@ -22,7 +24,6 @@ const img = {
   bag5: "https://images.unsplash.com/photo-1606522754091-a3bbf9ad4cef?auto=format&fit=crop&w=800&q=80",
   bag6: "https://images.unsplash.com/photo-1559563458-527698bf5295?auto=format&fit=crop&w=800&q=80",
   editorial: "https://images.unsplash.com/photo-1483653364400-eedcfb9f1f88?auto=format&fit=crop&w=1000&q=80",
-  hero: "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=1000&q=85",
 };
 
 const products = [
@@ -219,29 +220,6 @@ async function seed() {
   ]);
   console.log("✓ blogs");
 
-  await WebPic.deleteMany({});
-  await WebPic.insertMany([
-    {
-      webPicKey: "webpic-seed-1",
-      title: "Homepage hero — laptop",
-      image: img.hero,
-      device: "laptop",
-      section: "hero",
-      linksToProduct: false,
-      order: 0,
-    },
-    {
-      webPicKey: "webpic-seed-2",
-      title: "Editorial — tablet",
-      image: img.editorial,
-      device: "tablet",
-      section: "editorial",
-      linksToProduct: false,
-      order: 0,
-    },
-  ]);
-  console.log("✓ web pics");
-
   const styleImages = [
     "https://images.unsplash.com/photo-1521335629791-ce4aec67dd47?w=900&q=80",
     "https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=700&q=80",
@@ -318,6 +296,89 @@ async function seed() {
   } else {
     console.log("✓ admin user already exists");
   }
+
+  await upsertCollectedEmailDoc({
+    email: adminEmail,
+    name: "Alex Johnson",
+    newsletter: true,
+    source: "account",
+  });
+
+  const demoReturns = [
+    {
+      requestKey: "ret-demo-01",
+      requestType: "retour",
+      name: "Amira Benali",
+      phone: "0551 23 45 67",
+      email: "amira.benali@email.com",
+      wilaya: "16",
+      wilayaName: "Alger",
+      comment: "Le sac reçu ne correspond pas à la couleur commandée. Je souhaite un retour.",
+      status: "pending",
+    },
+    {
+      requestKey: "ret-demo-02",
+      requestType: "echange",
+      name: "Yacine Mebarki",
+      phone: "0770 88 12 40",
+      email: "yacine.mebarki@email.com",
+      wilaya: "31",
+      wilayaName: "Oran",
+      comment: "La pochette est trop petite. Merci de proposer un échange contre le modèle Mini Flap.",
+      status: "in_progress",
+    },
+    {
+      requestKey: "ret-demo-03",
+      requestType: "reclamation",
+      name: "Sara Khelifi",
+      phone: "0661 44 90 18",
+      email: "sara.khelifi@email.com",
+      wilaya: "25",
+      wilayaName: "Constantine",
+      comment: "La commande est arrivée avec une couture ouverte sur l’anse. Merci de me recontacter.",
+      status: "pending",
+    },
+    {
+      requestKey: "ret-demo-04",
+      requestType: "retour",
+      name: "Lina Haddad",
+      phone: "0792 55 04 88",
+      email: "lina.haddad@email.com",
+      wilaya: "15",
+      wilayaName: "Tizi Ouzou",
+      comment: "Produit renvoyé. Colis déposé à la poste, numéro de suivi envoyé par e-mail.",
+      status: "solved",
+    },
+    {
+      requestKey: "ret-demo-05",
+      requestType: "reclamation",
+      name: "Karim Boudiaf",
+      phone: "0560 71 28 93",
+      email: "karim.boudiaf@email.com",
+      wilaya: "19",
+      wilayaName: "Sétif",
+      comment: "Délai de livraison trop long. Demande classée après explication du suivi.",
+      status: "closed",
+    },
+  ];
+
+  for (const item of demoReturns) {
+    await ReturnRequest.updateOne(
+      { requestKey: item.requestKey },
+      { $setOnInsert: item },
+      { upsert: true }
+    );
+    await upsertCollectedEmailDoc({
+      email: item.email,
+      name: item.name,
+      newsletter: false,
+      source: "returns",
+    });
+  }
+  console.log("✓ return requests");
+
+  const emailCount = await CollectedEmail.countDocuments();
+  console.log(`✓ collected emails (${emailCount})`);
 
   console.log("Seed complete.");
   process.exit(0);

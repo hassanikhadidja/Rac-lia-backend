@@ -29,6 +29,7 @@ function toFrontendProduct(doc) {
     description: p.description || "",
     isPack: Boolean(p.isPack),
     isNewArrival: Boolean(p.isNewArrival),
+    inSalesReport: Boolean(p.inSalesReport),
     hasColorImages: Boolean(p.hasColorImages),
     packLabel: p.packLabel || "",
     sections: Array.isArray(p.sections) ? p.sections : ["all-selection"],
@@ -51,6 +52,9 @@ function toFrontendProduct(doc) {
     },
     colors: Array.isArray(p.colors) ? p.colors : [],
     colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
+    details: Array.isArray(p.details) && p.details.length
+      ? p.details.filter(Boolean)
+      : [p.materials, p.size].filter(Boolean),
     materials: p.materials || "",
     size: p.size || "",
     filters: Array.isArray(p.filters) ? p.filters : [],
@@ -80,23 +84,6 @@ function toFrontendBlog(doc) {
     createdAt: b.createdAt ? new Date(b.createdAt).getTime() : Date.now(),
     updatedAt: b.updatedAt ? new Date(b.updatedAt).getTime() : Date.now(),
     publishedAt: b.publishedAt ? new Date(b.publishedAt).getTime() : null,
-  };
-}
-
-function toFrontendWebPic(doc) {
-  if (!doc) return null;
-  const w = doc.toObject ? doc.toObject() : doc;
-  return {
-    id: w.webPicKey || String(w._id),
-    _id: String(w._id),
-    title: w.title || "",
-    image: w.image || w.imageUrl || "",
-    device: w.device || w.layout || "mobile",
-    section: w.section || "hero",
-    linksToProduct: Boolean(w.linksToProduct),
-    productId: w.productSlug || (w.productId ? String(w.productId) : null),
-    order: w.order ?? 0,
-    createdAt: w.createdAt ? new Date(w.createdAt).getTime() : Date.now(),
   };
 }
 
@@ -151,7 +138,10 @@ function toStorefrontStyleLook(doc) {
 function toFrontendOrder(doc) {
   if (!doc) return null;
   const o = doc.toObject ? doc.toObject() : doc;
-  const firstItem = o.items?.[0];
+  const items = o.items || [];
+  const firstItem = items[0];
+  const quantity = items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0) || 1;
+  const rawStatus = o.status === "processing" ? "pending" : o.status || "pending";
   return {
     id: o.orderNumber,
     _id: String(o._id),
@@ -164,26 +154,38 @@ function toFrontendOrder(doc) {
     wilaya: o.wilaya || "",
     commune: o.commune || "",
     product: firstItem?.name || "",
+    productSlug: firstItem?.productSlug || "",
+    quantity,
     total: formatPriceEur(o.total),
-    status: o.status || "processing",
-    statusLabel: orderStatusLabel(o.status),
-    items: o.items || [],
+    status: rawStatus,
+    statusLabel: orderStatusLabel(rawStatus),
+    items,
     subtotal: o.subtotal,
     deliveryFee: o.deliveryFee,
     discount: o.discount || 0,
+    loyaltyDiscount: o.loyaltyDiscount || 0,
+    promoCode: o.promoCode || "",
+    hasAccount: Boolean(o.userId),
+    userId: o.userId ? String(o.userId) : "",
     paymentMode: o.paymentMode || "cod",
     paymentMethod: o.paymentMethod || "",
     note: o.note || "",
+    issueComment: o.issueComment || "",
     createdAt: o.createdAt,
   };
 }
 
 function orderStatusLabel(status) {
   const map = {
-    processing: "Processing",
-    on_way: "On the way",
+    pending: "Pending",
+    processing: "Pending",
+    confirmed: "Confirmed",
+    on_way: "In way",
     delivered: "Delivered",
-    cancelled: "Cancelled",
+    received: "Received",
+    not_received: "Not Received",
+    order_issue: "Order Issue",
+    cancelled: "Canceled",
   };
   return map[status] || status;
 }
@@ -211,7 +213,43 @@ function toFrontendUser(doc) {
     commune: u.commune || "",
     birthday: u.birthday || null,
     avatar: u.avatar || "",
+    newsletter: u.newsletter !== false,
     createdAt: u.createdAt ? new Date(u.createdAt).getTime() : Date.now(),
+  };
+}
+
+function toFrontendCollectedEmail(doc) {
+  if (!doc) return null;
+  const e = doc.toObject ? doc.toObject() : doc;
+  return {
+    id: e.emailKey || String(e._id),
+    _id: String(e._id),
+    email: e.email || "",
+    name: e.name || "",
+    newsletter: e.newsletter === true,
+    sources: Array.isArray(e.sources) ? e.sources : [],
+    createdAt: e.createdAt ? new Date(e.createdAt).getTime() : Date.now(),
+    updatedAt: e.updatedAt ? new Date(e.updatedAt).getTime() : Date.now(),
+  };
+}
+
+function toFrontendReturnRequest(doc) {
+  if (!doc) return null;
+  const r = doc.toObject ? doc.toObject() : doc;
+  return {
+    id: r.requestKey || String(r._id),
+    _id: String(r._id),
+    requestType: r.requestType || "reclamation",
+    name: r.name || "",
+    phone: r.phone || "",
+    email: r.email || "",
+    wilaya: r.wilaya || "",
+    wilayaName: r.wilayaName || "",
+    comment: r.comment || "",
+    picture: r.picture || "",
+    status: r.status || "pending",
+    createdAt: r.createdAt ? new Date(r.createdAt).getTime() : Date.now(),
+    updatedAt: r.updatedAt ? new Date(r.updatedAt).getTime() : Date.now(),
   };
 }
 
@@ -219,11 +257,12 @@ module.exports = {
   PRODUCT_SECTIONS,
   toFrontendProduct,
   toFrontendBlog,
-  toFrontendWebPic,
   toFrontendReview,
   toFrontendStyleLook,
   toStorefrontStyleLook,
   toFrontendOrder,
   toFrontendUser,
+  toFrontendCollectedEmail,
+  toFrontendReturnRequest,
   orderStatusLabel,
 };

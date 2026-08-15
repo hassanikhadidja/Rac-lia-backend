@@ -1,29 +1,17 @@
 const mongoose = require("mongoose");
 
-let cached = global.mongoose;
-
-if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
-}
-
 const connectDB = async () => {
-  if (cached.conn) {
-    return cached.conn;
-  }
+    try {
+        if (!process.env.uri) {
+            throw new Error("MongoDB URI is not defined in environment variables");
+        }
 
-  if (!cached.promise) {
-    if (!process.env.uri) {
-      throw new Error("MongoDB URI is not defined in environment variables");
+        await mongoose.connect(process.env.uri);
+        console.log("✅ MongoDB Connected Successfully");
+    } catch (error) {
+        console.error("❌ MongoDB Connection Error:", error.message);
+        throw error;
     }
-
-    cached.promise = mongoose.connect(process.env.uri).then((instance) => {
-      console.log("MongoDB connected successfully");
-      return instance;
-    });
-  }
-
-  cached.conn = await cached.promise;
-  return cached.conn;
 };
 
 module.exports = connectDB;
