@@ -233,6 +233,30 @@ function toFrontendCollectedEmail(doc) {
   };
 }
 
+function toFrontendBoutique(doc) {
+  if (!doc) return null;
+  const s = doc.toObject ? doc.toObject() : doc;
+  return {
+    id: s.storeKey || String(s._id),
+    _id: String(s._id),
+    name: s.name || "",
+    type: s.type || "boutique",
+    location: s.location || "",
+    city: s.city || "",
+    postal: s.postal || "",
+    phone: s.phone || "",
+    website: s.website || "",
+    hours: s.hours || "",
+    note: s.note || "",
+    mapLink: s.mapLink || "",
+    isOnlineStore: Boolean(s.isOnlineStore) || s.type === "vente-en-ligne",
+    lat: s.lat == null || s.lat === "" ? null : Number.isFinite(Number(s.lat)) ? Number(s.lat) : null,
+    lng: s.lng == null || s.lng === "" ? null : Number.isFinite(Number(s.lng)) ? Number(s.lng) : null,
+    createdAt: s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
+    updatedAt: s.updatedAt ? new Date(s.updatedAt).getTime() : Date.now(),
+  };
+}
+
 function toFrontendReturnRequest(doc) {
   if (!doc) return null;
   const r = doc.toObject ? doc.toObject() : doc;
@@ -263,6 +287,7 @@ module.exports = {
   toFrontendOrder,
   toFrontendUser,
   toFrontendCollectedEmail,
+  toFrontendBoutique,
   toFrontendReturnRequest,
   orderStatusLabel,
 };

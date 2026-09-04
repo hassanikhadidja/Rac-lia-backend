@@ -15,6 +15,7 @@ const reviewRoutes = require("./routes/reviewRoutes");
 const styleLookRoutes = require("./routes/styleLookRoutes");
 const emailRoutes = require("./routes/emailRoutes");
 const returnRoutes = require("./routes/returnRoutes");
+const boutiqueRoutes = require("./routes/boutiqueRoutes");
 
 const cors = require("cors");
 
@@ -48,6 +49,7 @@ app.use("/review", reviewRoutes);
 app.use("/style", styleLookRoutes);
 app.use("/email", emailRoutes);
 app.use("/return", returnRoutes);
+app.use("/boutique", boutiqueRoutes);
 
 app.use((req, res) => {
   return res.status(404).json({ message: "Route not found" });

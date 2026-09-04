@@ -13,6 +13,7 @@ const Review = require("../models/review");
 const User = require("../models/user");
 const CollectedEmail = require("../models/collectedEmail");
 const ReturnRequest = require("../models/returnRequest");
+const Boutique = require("../models/boutique");
 const { parsePrice } = require("../utils/parsePrice");
 const { upsertCollectedEmailDoc } = require("../utils/upsertCollectedEmail");
 
@@ -379,6 +380,120 @@ async function seed() {
 
   const emailCount = await CollectedEmail.countDocuments();
   console.log(`✓ collected emails (${emailCount})`);
+
+  const boutiques = [
+    {
+      storeKey: "alger-didouche",
+      name: "RACÈLIA Alger — Didouche Mourad",
+      type: "boutique",
+      location: "24 boulevard Didouche Mourad, Alger Centre · Alger 16000",
+      city: "Alger",
+      postal: "16000",
+      phone: "+213 21 00 00 01",
+      website: "https://racelia.com",
+      hours: "Lun–Sam 10h–19h · Dim 11h–17h",
+      note: "Boutique phare — collection complète et services personnalisés.",
+      lat: 36.7753,
+      lng: 3.0588,
+      mapLink: "https://www.google.com/maps/search/?api=1&query=36.7753,3.0588",
+      isOnlineStore: false,
+      order: 0,
+    },
+    {
+      storeKey: "alger-hydracity",
+      name: "RACÈLIA Alger — Hydra",
+      type: "boutique",
+      location: "Chemin Mackley, Hydra, Alger · Alger 16035",
+      city: "Alger",
+      postal: "16035",
+      phone: "+213 21 00 00 02",
+      website: "https://racelia.com",
+      hours: "Lun–Sam 10h–19h",
+      note: "Essai et conseils d’entretien.",
+      lat: 36.7472,
+      lng: 3.0365,
+      mapLink: "https://www.google.com/maps/search/?api=1&query=36.7472,3.0365",
+      isOnlineStore: false,
+      order: 1,
+    },
+    {
+      storeKey: "oran-front-de-mer",
+      name: "RACÈLIA Oran — Front de mer",
+      type: "boutique",
+      location: "Boulevard de la Soummam, Oran · Oran 31000",
+      city: "Oran",
+      postal: "31000",
+      phone: "+213 41 00 00 03",
+      website: "https://racelia.com",
+      hours: "Lun–Sam 10h–19h · Dim fermé",
+      note: "Livraison express disponible depuis cette boutique.",
+      lat: 35.6971,
+      lng: -0.6308,
+      mapLink: "https://www.google.com/maps/search/?api=1&query=35.6971,-0.6308",
+      isOnlineStore: false,
+      order: 2,
+    },
+    {
+      storeKey: "constantine-centre",
+      name: "RACÈLIA Constantine",
+      type: "corner",
+      location: "Avenue Aouati Mostefa, Constantine · Constantine 25000",
+      city: "Constantine",
+      postal: "25000",
+      phone: "+213 31 00 00 04",
+      website: "https://racelia.com",
+      hours: "Lun–Sam 10h–18h30",
+      note: "Corner partenaire — sélection saisonnière.",
+      lat: 36.365,
+      lng: 6.6147,
+      mapLink: "https://www.google.com/maps/search/?api=1&query=36.365,6.6147",
+      isOnlineStore: false,
+      order: 3,
+    },
+    {
+      storeKey: "blida-centre",
+      name: "RACÈLIA Blida",
+      type: "boutique",
+      location: "Rue des Frères Bouadou, Blida · Blida 09000",
+      city: "Blida",
+      postal: "09000",
+      phone: "+213 25 00 00 05",
+      website: "https://racelia.com",
+      hours: "Lun–Sam 10h–19h",
+      note: "",
+      lat: 36.47,
+      lng: 2.8277,
+      mapLink: "https://www.google.com/maps/search/?api=1&query=36.47,2.8277",
+      isOnlineStore: false,
+      order: 4,
+    },
+    {
+      storeKey: "setif-atelier",
+      name: "Atelier RACÈLIA Sétif",
+      type: "atelier",
+      location: "Zone industrielle, Sétif · Sétif 19000",
+      city: "Sétif",
+      postal: "19000",
+      phone: "+213 36 00 00 06",
+      website: "https://racelia.com",
+      hours: "Sur rendez-vous",
+      note: "Visites d’atelier sur rendez-vous uniquement.",
+      lat: 36.1911,
+      lng: 5.4137,
+      mapLink: "https://www.google.com/maps/search/?api=1&query=36.1911,5.4137",
+      isOnlineStore: false,
+      order: 5,
+    },
+  ];
+
+  for (const store of boutiques) {
+    await Boutique.updateOne(
+      { storeKey: store.storeKey },
+      { $setOnInsert: store },
+      { upsert: true }
+    );
+  }
+  console.log(`✓ boutiques (${await Boutique.countDocuments()})`);
 
   console.log("Seed complete.");
   process.exit(0);
