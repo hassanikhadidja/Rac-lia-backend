@@ -33,7 +33,6 @@ const productSchema = new mongoose.Schema(
     sections: {
       type: [String],
       default: ["all-selection"],
-      enum: ["mini-bags", "racelia-handbag", "moms-bags", "all-selection", "metiers-dart"],
     },
     coverImage: { type: String, default: "" },
     cardCover: { type: String, default: "" },
@@ -68,6 +67,14 @@ const productSchema = new mongoose.Schema(
     materials: { type: String, default: "" },
     size: { type: String, default: "" },
     filters: { type: [String], default: [] },
+    promoPriceAmountDzd: { type: Number, default: 0, min: 0 },
+    isPromo: { type: Boolean, default: false },
+    stockNotes: { type: [String], default: [] },
+    univers: { type: [String], default: [] },
+    audiences: { type: [String], default: [] },
+    departments: { type: [String], default: [] },
+    mallFilters: { type: [String], default: [] },
+    kidsCategories: { type: [String], default: [] },
   },
   { timestamps: true }
 );

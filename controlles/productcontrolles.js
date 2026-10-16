@@ -102,6 +102,11 @@ function buildProductBody(body, uploadedUrls = []) {
   if (data.closerLookImages != null) data.closerLookImages = parseStringArray(data.closerLookImages);
   if (data.colors != null) data.colors = parseStringArray(data.colors);
   if (data.filters != null) data.filters = parseStringArray(data.filters);
+  for (const key of ["details", "stockNotes", "univers", "audiences", "departments", "mallFilters", "kidsCategories"]) {
+    if (data[key] != null) data[key] = parseStringArray(data[key]);
+  }
+  if (data.isPromo !== undefined) data.isPromo = data.isPromo === true || data.isPromo === "true";
+  if (data.promoPriceAmountDzd != null) data.promoPriceAmountDzd = Number(data.promoPriceAmountDzd) || 0;
   if (data.closerLookMain != null) data.closerLookMain = parseJsonField(data.closerLookMain, {});
 
   if (data.isPack !== undefined) data.isPack = data.isPack === true || data.isPack === "true";

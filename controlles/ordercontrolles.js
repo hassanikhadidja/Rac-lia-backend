@@ -3,6 +3,14 @@ const { toFrontendOrder } = require("../utils/mappers");
 
 const DELIVERY_FEE = 20;
 const ONLINE_DISCOUNT_RATE = 0.05;
+const FREE_SHIPPING_FROM_DZD = 6500;
+const EUR_TO_DZD = 270;
+
+function deliveryFeeFor(subtotalEur) {
+  const subtotalDzd = (Number(subtotalEur) || 0) * EUR_TO_DZD;
+  if (subtotalDzd >= FREE_SHIPPING_FROM_DZD) return 0;
+  return DELIVERY_FEE;
+}
 
 async function nextOrderNumber() {
   const count = await Order.countDocuments();
@@ -40,7 +48,7 @@ exports.CreateOrder = async (req, res) => {
     }));
 
     const subtotal = normalizedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    const deliveryFee = normalizedItems.length > 0 ? DELIVERY_FEE : 0;
+    const deliveryFee = normalizedItems.length > 0 ? deliveryFeeFor(subtotal) : 0;
     const mode = paymentMode === "online" ? "online" : "cod";
     const loyaltyDiscount = Math.min(subtotal, Math.max(0, Number(loyaltyDiscountRaw) || 0));
     const afterLoyalty = Math.max(0, subtotal - loyaltyDiscount);
@@ -161,6 +169,7 @@ exports.GetConfig = (req, res) => {
   res.json({
     deliveryFee: DELIVERY_FEE,
     onlineDiscountRate: ONLINE_DISCOUNT_RATE,
+    freeShippingFromDzd: FREE_SHIPPING_FROM_DZD,
     currency: "EUR",
   });
 };
